@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.17;
+pragma solidity 0.8.25;
 
-import "lib/oz/contracts/access/Ownable.sol";
-import {Permit2} from "permit2/Permit2.sol";
-import {ISignatureTransfer} from "permit2/interfaces/ISignatureTransfer.sol";
-import {IAllowanceTransfer} from "permit2/interfaces/IAllowanceTransfer.sol";
+import {Permit2} from "lib/permit2/src/Permit2.sol";
+import {ISignatureTransfer} from "lib/permit2/src/interfaces/ISignatureTransfer.sol";
+import {IAllowanceTransfer} from "lib/permit2/src/interfaces/IAllowanceTransfer.sol";
+import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 
 contract SubscriptionManager is Ownable {
     Permit2 public permit2;
     address public treasury;
+
+    constructor(address _permit2) Ownable(msg.sender) {
+        permit2 = Permit2(_permit2);
+        treasury = msg.sender;
+    }
 
     event SubscriptionCreated(
         address indexed user,
@@ -25,6 +30,8 @@ contract SubscriptionManager is Ownable {
 
     error SubscriptionInactive(address user);
     error NotTimeForCharge(address user, uint256 nextCharge);
+    error NotPermittedToken(address user, address token);
+    error PermitInvalid(address user);
 
     struct Subscription {
         uint256 amount;
@@ -36,15 +43,6 @@ contract SubscriptionManager is Ownable {
     }
 
     mapping(address => Subscription) public subs;
-
-    /* i can make this multi subscription with something like "mapping(address => mapping(bytes32 => Subscription)) public subs;" 
-    
-    but for practice sake, im keeping it simple */
-
-    constructor(address _permit2) {
-        permit2 = Permit2(_permit2);
-        treasury = msg.sender;
-    }
 
     function createSubscription(
         address user,
@@ -85,7 +83,6 @@ contract SubscriptionManager is Ownable {
             revert NotTimeForCharge(user, s.nextCharge);
 
         if (!s.firstChargeCompleted) {
-            // First-time charge: decode permit
             ISignatureTransfer.PermitTransferFrom memory permit = abi.decode(
                 permitData,
                 (ISignatureTransfer.PermitTransferFrom)
@@ -93,12 +90,14 @@ contract SubscriptionManager is Ownable {
 
             if (permit.permitted.token != s.token) revert();
             if (s.amount > permit.permitted.amount) revert();
+            if (permit.deadline < block.timestamp) revert PermitInvalid(user);
+            if (permitData.length == 0 || signature.length == 0)
+                revert PermitInvalid(user);
 
             ISignatureTransfer.SignatureTransferDetails memory transferDetails;
             transferDetails.to = treasury;
             transferDetails.requestedAmount = s.amount;
 
-            // Signature-based charge
             ISignatureTransfer(address(permit2)).permitTransferFrom(
                 permit,
                 transferDetails,
@@ -108,7 +107,7 @@ contract SubscriptionManager is Ownable {
 
             s.firstChargeCompleted = true;
         } else {
-            // Recurring charge using allowance
+            // FIX: new AllowanceTransfer API
             IAllowanceTransfer(address(permit2)).transferFrom(
                 user,
                 treasury,
