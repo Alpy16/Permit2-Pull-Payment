@@ -81,6 +81,8 @@ contract SubscriptionManager is Ownable {
         if (!s.active) revert SubscriptionInactive(user);
         if (block.timestamp < s.nextCharge)
             revert NotTimeForCharge(user, s.nextCharge);
+        if (permitData.length == 0 || signature.length == 0)
+            revert PermitInvalid(user);
 
         if (!s.firstChargeCompleted) {
             ISignatureTransfer.PermitTransferFrom memory permit = abi.decode(
@@ -89,10 +91,9 @@ contract SubscriptionManager is Ownable {
             );
 
             if (permit.permitted.token != s.token) revert();
-            if (s.amount > permit.permitted.amount) revert();
+            if (s.amount > permit.permitted.amount)
+                revert NotPermittedToken(user, permit.permitted.token);
             if (permit.deadline < block.timestamp) revert PermitInvalid(user);
-            if (permitData.length == 0 || signature.length == 0)
-                revert PermitInvalid(user);
 
             ISignatureTransfer.SignatureTransferDetails memory transferDetails;
             transferDetails.to = treasury;

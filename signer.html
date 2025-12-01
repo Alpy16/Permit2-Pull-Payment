@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <title>EIP-712 Signer</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 40px;
+        }
+
+        textarea {
+            width: 600px;
+            height: 250px;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin-top: 10px;
+        }
+
+        #status {
+            margin-bottom: 20px;
+            color: green;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>EIP-712 Typed Data Signer</h2>
+
+    <div id="status">Not connected</div>
+    <button onclick="connect()">Connect Wallet</button>
+
+    <h3>Typed Data JSON</h3>
+    <textarea id="json"></textarea><br>
+
+    <button onclick="sign()">Sign Typed Data (v4)</button>
+
+    <h3>Signature</h3>
+    <pre id="sig" style="background:#f5f5f5; padding:15px;"></pre>
+
+    <script>
+        let account;
+
+        async function connect() {
+            if (!window.ethereum) {
+                alert("MetaMask not detected");
+                return;
+            }
+
+            const accounts = await ethereum.request({ method: "eth_requestAccounts" });
+            account = accounts[0];
+
+            document.getElementById("status").innerText =
+                "Connected: " + account;
+        }
+
+        async function sign() {
+            if (!account) {
+                alert("Connect wallet first");
+                return;
+            }
+
+            const json = document.getElementById("json").value;
+            if (!json.trim()) {
+                alert("Paste EIP712 JSON first");
+                return;
+            }
+
+            let data;
+            try {
+                data = JSON.parse(json);
+            } catch (e) {
+                alert("Invalid JSON");
+                return;
+            }
+
+            try {
+                const signature = await ethereum.request({
+                    method: "eth_signTypedData_v4",
+                    params: [account, JSON.stringify(data)],
+                });
+
+                document.getElementById("sig").innerText = signature;
+
+            } catch (err) {
+                document.getElementById("sig").innerText =
+                    "Error: " + err.message;
+            }
+        }
+    </script>
+</body>
+
+</html>
