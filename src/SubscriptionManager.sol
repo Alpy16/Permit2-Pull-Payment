@@ -78,26 +78,34 @@ contract SubscriptionManager is Ownable {
         bytes calldata signature
     ) external onlyOwner {
         Subscription storage s = subs[user];
+
         if (!s.active) revert SubscriptionInactive(user);
         if (block.timestamp < s.nextCharge)
             revert NotTimeForCharge(user, s.nextCharge);
-        if (permitData.length == 0 || signature.length == 0)
-            revert PermitInvalid(user);
 
         if (!s.firstChargeCompleted) {
+            // FIRST CHARGE — MUST use signature-based PermitTransferFrom
+            if (permitData.length == 0 || signature.length == 0) {
+                revert PermitInvalid(user);
+            }
+
             ISignatureTransfer.PermitTransferFrom memory permit = abi.decode(
                 permitData,
                 (ISignatureTransfer.PermitTransferFrom)
             );
 
-            if (permit.permitted.token != s.token) revert();
+            if (permit.permitted.token != s.token)
+                revert NotPermittedToken(user, permit.permitted.token);
             if (s.amount > permit.permitted.amount)
                 revert NotPermittedToken(user, permit.permitted.token);
             if (permit.deadline < block.timestamp) revert PermitInvalid(user);
 
-            ISignatureTransfer.SignatureTransferDetails memory transferDetails;
-            transferDetails.to = treasury;
-            transferDetails.requestedAmount = s.amount;
+            ISignatureTransfer.SignatureTransferDetails
+                memory transferDetails = ISignatureTransfer
+                    .SignatureTransferDetails({
+                        to: treasury,
+                        requestedAmount: s.amount
+                    });
 
             ISignatureTransfer(address(permit2)).permitTransferFrom(
                 permit,
@@ -108,13 +116,15 @@ contract SubscriptionManager is Ownable {
 
             s.firstChargeCompleted = true;
         } else {
-            // FIX: new AllowanceTransfer API
+            // RECURRING CHARGES — MUST use AllowanceTransfer.transferFrom
             IAllowanceTransfer(address(permit2)).transferFrom(
                 user,
                 treasury,
                 uint160(s.amount),
                 s.token
             );
+
+            // IMPORTANT: no signature or permitData is required here
         }
 
         s.nextCharge += s.interval;
