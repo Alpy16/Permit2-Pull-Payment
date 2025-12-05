@@ -5,7 +5,7 @@ libs = ["lib"]
 optimizer = true
 optimizer_runs = 200
 via_ir = true
-solc = "0.8.25"
+auto_detect_solc = true
 
 remappings = [
     "forge-std/=lib/forge-std/src/",

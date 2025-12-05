@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: MIT
-pragma solidity 0.8.25;
+pragma solidity 0.8.17;
 
 import {SubscriptionManager} from "../src/SubscriptionManager.sol";
 import {Script} from "lib/forge-std/src/Script.sol";

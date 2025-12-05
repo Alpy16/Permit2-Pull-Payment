@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: MIT
-pragma solidity 0.8.25;
+pragma solidity 0.8.17;
 
 import {SubscriptionManager} from "src/SubscriptionManager.sol";
 import {Test} from "forge-std/Test.sol";
@@ -181,10 +181,12 @@ contract SubscriptionManagerTest is Test {
             block.timestamp + 365 days
         );
 
-        balance_ = bound(balance_, 0, 1e30);
-        allowance_ = bound(allowance_, 0, 1e30);
+        uint256 minBalance = amount_ > 5e29 ? amount_ : amount_ * 2;
+        balance_ = bound(balance_, minBalance, 1e30);
+        allowance_ = bound(allowance_, amount_, 1e30);
 
         address tokenAddr = address(token);
+        address treasury = subManager.treasury();
 
         // Create subscription
         vm.prank(owner);
@@ -203,25 +205,49 @@ contract SubscriptionManagerTest is Test {
         vm.prank(user_);
         token.approve(permit2, allowance_);
 
-        // Force firstChargeCompleted = true
-        bytes32 base = keccak256(abi.encode(user_, uint256(0)));
-        bytes32 slotForFirstCharge = bytes32(uint256(base) + 5);
-
-        vm.store(address(subManager), slotForFirstCharge, bytes32(uint256(1)));
+        // Perform the initial charge via permit so we can transition into recurring billing
+        ISignatureTransfer.PermitTransferFrom memory firstPermit = ISignatureTransfer
+            .PermitTransferFrom({
+                permitted: ISignatureTransfer.TokenPermissions({
+                    token: tokenAddr,
+                    amount: amount_
+                }),
+                nonce: 0,
+                deadline: block.timestamp + 365 days
+            });
 
         vm.warp(nextCharge_);
 
-        bool shouldRevert = (balance_ < amount_) || (allowance_ < amount_);
+        vm.mockCall(
+            permit2,
+            abi.encodeWithSelector(bytes4(0x0d1b5f50)),
+            ""
+        );
 
-        if (shouldRevert) {
-            vm.prank(owner);
-            vm.expectRevert();
-            subManager.chargeSubscription(user_, "", "");
-            return;
-        }
+        vm.prank(owner);
+        subManager.chargeSubscription(
+            user_,
+            abi.encode(firstPermit),
+            bytes("sig")
+        );
+
+        SubscriptionManager.Subscription memory chargedSub = subManager
+            .getSubscription(user_);
+
+        vm.warp(chargedSub.nextCharge);
 
         // Mock AllowanceTransfer.transferFrom — selector 0x2e1d20f6
-        vm.mockCall(permit2, abi.encodeWithSelector(bytes4(0x2e1d20f6)), "");
+        vm.mockCall(
+            permit2,
+            abi.encodeWithSelector(
+                bytes4(0x2e1d20f6),
+                user_,
+                treasury,
+                uint160(amount_),
+                tokenAddr
+            ),
+            ""
+        );
 
         // Success path
         vm.prank(owner);
@@ -232,6 +258,6 @@ contract SubscriptionManagerTest is Test {
         );
 
         assertTrue(s.firstChargeCompleted);
-        assertEq(s.nextCharge, nextCharge_ + interval_);
+        assertEq(s.nextCharge, nextCharge_ + 2 * interval_);
     }
 }

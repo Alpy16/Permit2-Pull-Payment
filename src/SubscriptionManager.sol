@@ -1,17 +1,24 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.25;
+pragma solidity 0.8.17;
 
 import {Permit2} from "lib/permit2/src/Permit2.sol";
 import {ISignatureTransfer} from "lib/permit2/src/interfaces/ISignatureTransfer.sol";
 import {IAllowanceTransfer} from "lib/permit2/src/interfaces/IAllowanceTransfer.sol";
-import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
-
-contract SubscriptionManager is Ownable {
+contract SubscriptionManager {
     Permit2 public permit2;
     address public treasury;
+    address public owner;
 
-    constructor(address _permit2) Ownable(msg.sender) {
+    error NotOwner(address caller);
+
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert NotOwner(msg.sender);
+        _;
+    }
+
+    constructor(address _permit2) {
         permit2 = Permit2(_permit2);
+        owner = msg.sender;
         treasury = msg.sender;
     }
 
@@ -65,6 +72,11 @@ contract SubscriptionManager is Ownable {
     function cancelSubscription(address user) external onlyOwner {
         subs[user].active = false;
         emit SubscriptionCancelled(user);
+    }
+
+    function transferOwnership(address newOwner) external onlyOwner {
+        require(newOwner != address(0), "zero addr");
+        owner = newOwner;
     }
 
     function cancelMySubscription() external {
